@@ -33,6 +33,10 @@ import {
   xdr,
   Transaction,
 } from "@stellar/stellar-sdk";
+import {
+  SorobanTransactionReplayQueue,
+  type SorobanReplayStore,
+} from "./sorobanTransactionReplayQueue.js";
 import { PrizeService } from "../league/prizeService.js";
 import {
   LocalSecretTransactionSigner,
@@ -90,6 +94,10 @@ export interface InvocationResult {
   returnValue?: unknown;
   error?: string;
   contractErrorCode?: number;
+  submissionStatus?: string;
+  sequence?: string;
+  pendingVerification?: boolean;
+  dropped?: boolean;
   humanError?: string;
   isRetryable?: boolean;
   uncertain?: boolean;
@@ -112,6 +120,7 @@ export class SorobanContractClient {
   private usdcContractId: string;
   private pollIntervalMs: number;
   private maxPollAttempts: number;
+  private replayQueue: SorobanTransactionReplayQueue;
   private signer: StellarTransactionSigner;
   private feeBumpFeeSource?: string;
 
@@ -123,6 +132,8 @@ export class SorobanContractClient {
     server?: rpc.Server;
     pollIntervalMs?: number;
     maxPollAttempts?: number;
+    replayQueue?: SorobanTransactionReplayQueue;
+    replayStore?: SorobanReplayStore;
     signer?: StellarTransactionSigner;
     feeBumpFeeSource?: string;
   }) {
@@ -144,6 +155,16 @@ export class SorobanContractClient {
       process.env.STELLAR_USDC_TOKEN_CONTRACT_ID ||
       "";
     this.pollIntervalMs = options?.pollIntervalMs ?? 1000;
+    this.maxPollAttempts = options?.maxPollAttempts ?? 5;
+    this.replayQueue =
+      options?.replayQueue ??
+      new SorobanTransactionReplayQueue({
+        server: this.server,
+        store: options?.replayStore,
+        networkPassphrase: this.networkPassphrase,
+        pollIntervalMs: this.pollIntervalMs,
+        maxPollAttempts: this.maxPollAttempts,
+      });
     this.maxPollAttempts = options?.maxPollAttempts ?? 30;
     this.signer = options?.signer || SorobanContractClient.configuredSigner || new LocalSecretTransactionSigner();
     this.feeBumpFeeSource = options?.feeBumpFeeSource || process.env.STELLAR_FEE_BUMP_SOURCE;
@@ -204,6 +225,21 @@ export class SorobanContractClient {
   /**
    * Submits a signed transaction and polls until it is final.
    */
+  private async sendAndPoll(tx: Transaction): Promise<InvocationResult> {
+    const result = await this.replayQueue.submit(tx);
+    return {
+      success: result.success,
+      txHash: result.txHash,
+      returnValue: result.returnValue,
+      error: result.error,
+      contractErrorCode: result.error
+        ? SorobanContractClient.parseContractErrorCode(result.error)
+        : undefined,
+      submissionStatus: result.status,
+      sequence: result.sequence,
+      pendingVerification: result.pendingVerification,
+      dropped: result.dropped,
+    };
   private async sendAndPoll(tx: StellarTransaction, beforeSubmit?: (hash: string, envelope: string) => Promise<void>): Promise<InvocationResult> {
     let submitted: StellarTransaction = tx;
     if (this.feeBumpFeeSource && tx instanceof Transaction) {
@@ -303,6 +339,27 @@ export class SorobanContractClient {
             return this.failure(`Simulation failed: ${simulation.error}`);
           }
 
+      if (rpc.Api.isSimulationRestore(simulation)) {
+        const restored = await this.restoreFootprint(keypair, simulation.restorePreamble);
+        if (!restored.success) {
+          return {
+            ...this.failure(
+              `Footprint restoration failed: ${restored.error}`,
+              restored.txHash
+            ),
+            submissionStatus: restored.submissionStatus,
+            sequence: restored.sequence,
+            pendingVerification: restored.pendingVerification,
+            dropped: restored.dropped,
+          };
+        }
+        account = await this.server.getAccount(keypair.publicKey());
+        tx = this.buildInvocation(account, contractId, method, args);
+        simulation = await this.server.simulateTransaction(tx);
+        if (rpc.Api.isSimulationError(simulation)) {
+          return this.failure(`Simulation failed: ${simulation.error}`);
+        }
+      }
           if (rpc.Api.isSimulationRestore(simulation)) {
             const restored = await this.restoreFootprint(sourceSecret, simulation.restorePreamble);
             if (!restored.success) {

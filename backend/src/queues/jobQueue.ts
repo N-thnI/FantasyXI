@@ -4,6 +4,7 @@ import { collectMatchdaySyncTasks } from "../jobs/matchdayPolling.js";
 import { lockDueGameweeks } from "../jobs/deadlineLocking.js";
 import { settleCompletedGameweeks } from "../jobs/gameweekSettlement.js";
 import { processLeagueRefunds } from "../jobs/leagueRefunds.js";
+import { sorobanTransactionReplayDaemon } from "../services/financial/sorobanTransactionReplayQueue.js";
 import { ledgerAuditService } from "../services/financial/ledgerAuditService.js";
 import { runLedgerReconciliationJob } from "../jobs/ledgerReconciliation.js";
 import { applyRetroactiveBpsAdjustments } from "../jobs/retroactiveBpsAdjustments.js";
@@ -239,6 +240,7 @@ export async function startJobQueue(connectionString: string): Promise<void> {
   );
 
   boss = instance;
+  sorobanTransactionReplayDaemon.start();
   console.log(`[jobs] Job queue started: ${JOB_DEFINITIONS.map((d) => d.name).join(", ")}`);
   console.log(
     `[jobs] FPL sync queue "${FPL_SYNC_QUEUE_NAME}" active (retry limit ${FPL_SYNC_RETRY_LIMIT}, retry backoff: exponential), DLQ "${FPL_SYNC_DLQ_NAME}" ready`
@@ -247,6 +249,7 @@ export async function startJobQueue(connectionString: string): Promise<void> {
 
 export async function stopJobQueue(): Promise<void> {
   if (!boss) return;
+  sorobanTransactionReplayDaemon.stop();
   await boss.stop({ graceful: true });
   boss = null;
 }
