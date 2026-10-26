@@ -79,6 +79,13 @@ export class SwissTournamentEngine {
     totalRounds?: number;
   }) {
     const totalCount = options.participants.length;
+    if (totalCount < 2) {
+      throw new Error("A tournament requires at least 2 participants.");
+    }
+    const participantIds = new Set(options.participants.map((participant) => participant.id));
+    if (participantIds.size !== totalCount || options.participants.some((participant) => !participant.id.trim())) {
+      throw new Error("Tournament participants must have unique, non-empty IDs.");
+    }
     // Default rounds: log2(N) rounded up, minimum 3
     const calculatedRounds =
       totalCount > 1
@@ -86,6 +93,9 @@ export class SwissTournamentEngine {
         : 1;
 
     const totalRounds = options.totalRounds ?? calculatedRounds;
+    if (!Number.isInteger(totalRounds) || totalRounds < 1) {
+      throw new Error("Tournament rounds must be a positive integer.");
+    }
 
     const participantsMap: Record<string, SwissParticipant> = {};
     options.participants.forEach((p, idx) => {
@@ -199,7 +209,7 @@ export class SwissTournamentEngine {
         return b.pointsFor - a.pointsFor;
       }
       // 6. Seed / ID tie-break (ascending)
-      return a.seed - b.seed;
+      return a.seed - b.seed || a.id.localeCompare(b.id);
     });
 
     // 3. Assign ranks
@@ -432,6 +442,9 @@ export class SwissTournamentEngine {
       awayScore: number;
     }>
   ): void {
+    if (this.state.status !== "ROUND_ACTIVE") {
+      throw new Error("Round results can only be submitted for an active round.");
+    }
     if (this.state.currentRound !== roundNumber) {
       throw new Error(
         `Invalid round submission. Current round is ${this.state.currentRound}, submitted ${roundNumber}.`
@@ -441,6 +454,31 @@ export class SwissTournamentEngine {
     const round = this.getCurrentRound();
     if (!round) {
       throw new Error(`Round ${roundNumber} not found.`);
+    }
+
+    const expectedMatchups = round.matchups.filter((matchup) => matchup.awayParticipantId !== null);
+    const expectedKeys = new Set(expectedMatchups.map((matchup) =>
+      [matchup.homeParticipantId, matchup.awayParticipantId!].sort().join("\u0000")
+    ));
+    const submittedKeys = new Set<string>();
+    for (const result of results) {
+      if (result.awayParticipantId === null) {
+        throw new Error("Bye results are recorded automatically and must not be submitted.");
+      }
+      if (!Number.isFinite(result.homeScore) || !Number.isFinite(result.awayScore) || result.homeScore < 0 || result.awayScore < 0) {
+        throw new Error("Match scores must be finite, non-negative numbers.");
+      }
+      const key = [result.homeParticipantId, result.awayParticipantId].sort().join("\u0000");
+      if (!expectedKeys.has(key)) {
+        throw new Error("Results include a matchup that is not part of the active round.");
+      }
+      if (submittedKeys.has(key)) {
+        throw new Error("Each matchup can only be submitted once per round.");
+      }
+      submittedKeys.add(key);
+    }
+    if (submittedKeys.size !== expectedKeys.size) {
+      throw new Error("Results must be provided for every non-bye matchup in the round.");
     }
 
     for (const res of results) {
@@ -462,13 +500,7 @@ export class SwissTournamentEngine {
         }
       }
 
-      if (!matchup) {
-        continue;
-      }
-
-      if (matchup.isFinished && matchup.awayParticipantId === null) {
-        continue;
-      }
+      if (!matchup) continue;
 
       const homeScore = isReversed ? res.awayScore : res.homeScore;
       const awayScore = isReversed ? res.homeScore : res.awayScore;
