@@ -288,8 +288,8 @@ export default function TeamPage() {
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 250,
-        tolerance: 5,
+        delay: 350,
+        tolerance: 8,
       },
     })
   );
