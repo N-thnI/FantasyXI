@@ -196,8 +196,8 @@ describe("Swiss-System Tournament Engine (Issue #341)", () => {
         );
         matchupHistory.add(pairKey);
 
-        const score1 = Math.floor(Math.random() * 80) + 20;
-        const score2 = Math.floor(Math.random() * 80) + 20;
+        const score1 = ((round * 17 + Number(m.homeParticipantId.split("-")[1]) * 7) % 80) + 20;
+        const score2 = ((round * 13 + Number(m.awayParticipantId.split("-")[1]) * 11) % 80) + 20;
         roundResults.push({
           homeParticipantId: m.homeParticipantId,
           awayParticipantId: m.awayParticipantId,
@@ -210,6 +210,84 @@ describe("Swiss-System Tournament Engine (Issue #341)", () => {
     }
 
     assert.equal(engine.getState().status, "TOURNAMENT_COMPLETED");
+  });
+
+  it("requires a complete, unique, valid result set before resolving a round", () => {
+    const engine = new SwissTournamentEngine({
+      leagueId: "validated-results",
+      participants: Array.from({ length: 4 }, (_, i) => ({ id: `p-${i + 1}` })),
+      totalRounds: 2,
+    });
+    const round = engine.generateNextRound(1);
+    const [first, second] = round.matchups;
+    const firstResult = {
+      homeParticipantId: first.homeParticipantId,
+      awayParticipantId: first.awayParticipantId!,
+      homeScore: 40,
+      awayScore: 30,
+    };
+    const secondResult = {
+      homeParticipantId: second.homeParticipantId,
+      awayParticipantId: second.awayParticipantId!,
+      homeScore: 20,
+      awayScore: 10,
+    };
+
+    assert.throws(() => engine.submitRoundResults(1, [firstResult]), /every non-bye matchup/);
+    assert.equal(engine.getState().participants[first.homeParticipantId].matchPoints, 0);
+    assert.throws(
+      () => engine.submitRoundResults(1, [firstResult, firstResult]),
+      /only be submitted once/
+    );
+    assert.throws(
+      () => engine.submitRoundResults(1, [firstResult, { ...secondResult, homeScore: -1 }]),
+      /finite, non-negative/
+    );
+
+    engine.submitRoundResults(1, [firstResult, secondResult]);
+    const pointsAfterResolution = engine.getState().participants[first.homeParticipantId].matchPoints;
+    assert.throws(() => engine.submitRoundResults(1, [firstResult, secondResult]), /active round/);
+    assert.equal(engine.getState().participants[first.homeParticipantId].matchPoints, pointsAfterResolution);
+  });
+
+  it("completes five-round 8, 16, and 64-player tournaments without repeats or duplicate byes", () => {
+    for (const playerCount of [8, 16, 64]) {
+      const engine = new SwissTournamentEngine({
+        leagueId: `acceptance-${playerCount}`,
+        participants: Array.from({ length: playerCount }, (_, index) => ({
+          id: `player-${index + 1}`,
+          seed: index + 1,
+        })),
+        totalRounds: 5,
+      });
+      const opponents = new Set<string>();
+      const byeRecipients = new Set<string>();
+
+      for (let round = 1; round <= 5; round++) {
+        const pairing = engine.generateNextRound(round);
+        const results = [];
+        for (const matchup of pairing.matchups) {
+          if (matchup.awayParticipantId === null) {
+            assert.equal(byeRecipients.has(matchup.homeParticipantId), false);
+            byeRecipients.add(matchup.homeParticipantId);
+            continue;
+          }
+          const key = [matchup.homeParticipantId, matchup.awayParticipantId].sort().join("::");
+          assert.equal(opponents.has(key), false, `repeat pairing in ${playerCount}-player round ${round}`);
+          opponents.add(key);
+          results.push({
+            homeParticipantId: matchup.homeParticipantId,
+            awayParticipantId: matchup.awayParticipantId,
+            homeScore: round * 10 + Number(matchup.homeParticipantId.split("-")[1]),
+            awayScore: round * 10 + Number(matchup.awayParticipantId.split("-")[1]),
+          });
+        }
+        engine.submitRoundResults(round, results);
+      }
+
+      assert.equal(engine.getState().status, "TOURNAMENT_COMPLETED");
+      assert.equal(engine.getStandings().length, playerCount);
+    }
   });
 
   it("enforces state machine round lifecycle and guards against invalid transitions", () => {
