@@ -57,13 +57,14 @@ pub enum EscrowError {
     ProposalExecuted = 30,
     PauseProposalNotFound = 31,
     AlreadyProposed = 32,
-    LeagueFrozen = 31,
-    DisputeActive = 32,
-    HashMismatch = 27,
-    TimelockActive = 28,
-    ProposalNotFound = 29,
-    AlreadyApproved = 30,
-    ProposalExecuted = 26,
+    LeagueFrozen = 33,
+    DisputeActive = 34,
+    DisputeWindowOpen = 35,
+    DisputeWindowClosed = 36,
+    NoDispute = 37,
+    InsufficientStake = 38,
+    DisputeNotExpired = 39,
+    InvalidDisputeConfig = 40,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -3521,6 +3522,9 @@ mod test {
             client.try_multisig_unpause(&valid_approvals, &reason),
             Err(Ok(EscrowError::NotPaused))
         );
+    }
+
+    #[test]
     fn fuzz_multisig_signer_combinations() {
         let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig::with_cases(1));
         let strategy = prop::collection::vec(prop::collection::vec(0u8..5, 0..5), 10_000);

@@ -6,6 +6,7 @@ import {
   FinancialForbiddenError,
   FinancialConflictError,
 } from "../services/financial/financialService.js";
+import { proofOfReserveService } from "../services/financial/proofOfReserveService.js";
 import { SorobanContractClient } from "../services/financial/sorobanContractClient.js";
 
 /**
@@ -395,6 +396,19 @@ export async function getAffiliateDashboard(
 }
 
 
+/**
+ * Public proof-of-reserve snapshot: Merkle roots of the ledger and on-chain
+ * deposit commitments, total liabilities and the escrow's token reserve.
+ */
+export async function getProofOfReserve(_req: Request, res: Response): Promise<void> {
+  const snapshot = proofOfReserveService.getPublicSnapshot();
+  if (!snapshot) {
+    res.status(503).json({ success: false, message: "No proof-of-reserve snapshot has been generated yet" });
+    return;
+  }
+  res.status(200).json({ success: true, data: snapshot });
+}
+
 import { SorobanStateArchivalRecoveryService } from "../services/financial/sorobanStateArchivalRecovery.js";
 import { disputeService } from "../services/financial/disputeService.js";
 import { createSettlementMerkleTree } from "../services/financial/settlementProof.js";
@@ -666,4 +680,3 @@ export async function executeMerkleSettlementHandler(
     next(error);
   }
 }
-

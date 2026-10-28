@@ -489,6 +489,24 @@ export class LeagueService {
       throw new LeagueValidationError("isPrivate must be a boolean");
     }
 
+    const hasBuyInRange = input.minBuyIn !== undefined || input.maxBuyIn !== undefined;
+    if (hasBuyInRange) {
+      const { minBuyIn, maxBuyIn } = input;
+      if (!input.isPrivate) {
+        throw new LeagueValidationError("Buy-in ranges are only supported for private leagues");
+      }
+      if (
+        typeof minBuyIn !== "number" ||
+        typeof maxBuyIn !== "number" ||
+        !Number.isFinite(minBuyIn) ||
+        !Number.isFinite(maxBuyIn) ||
+        minBuyIn <= 0 ||
+        maxBuyIn < minBuyIn
+      ) {
+        throw new LeagueValidationError("Buy-in range requires 0 < minBuyIn <= maxBuyIn");
+      }
+    }
+
     const payoutPreset = input.payoutPreset ?? "standard";
     if (!["standard", "winner-takes-all", "top-five", "custom"].includes(payoutPreset)) {
       throw new LeagueValidationError("Invalid payout preset");
@@ -498,6 +516,8 @@ export class LeagueService {
         PrizeService.validateSplits(input.customPrizeSplitsBps ?? []);
       } catch (error) {
         throw new LeagueValidationError(error instanceof Error ? error.message : "Invalid custom prize splits");
+      }
+    }
       }
     }
 
@@ -589,6 +609,7 @@ export class LeagueService {
           payoutPreset,
           payoutSplitsBps: payoutPreset === "custom" ? input.customPrizeSplitsBps : [],
           isPrivate: input.isPrivate ?? false,
+          ...(hasBuyInRange && { minBuyIn: input.minBuyIn, maxBuyIn: input.maxBuyIn }),
           startGameweekId: startGw.id,
           endGameweekId: endGw.id,
         },

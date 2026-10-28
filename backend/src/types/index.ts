@@ -269,6 +269,8 @@ export interface CreateLeagueInput {
   scoringConfig?: LeagueScoringConfig;
   scoringPreset?: ScoringPreset;
   isPrivate?: boolean; // default false: private leagues are invitation-only
+  minBuyIn?: number; // private leagues only: deposits must prove a stake >= minBuyIn (USDC)
+  maxBuyIn?: number; // private leagues only: deposits must prove a stake <= maxBuyIn (USDC)
   payoutPreset?: "standard" | "winner-takes-all" | "top-five" | "custom";
   customPrizeSplitsBps?: number[];
 }

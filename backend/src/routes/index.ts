@@ -16,6 +16,7 @@ import financialRoutes from "./financial.routes.js";
 import sep8Routes from "./sep8.routes.js";
 import webhookRoutes from "./webhook.routes.js";
 import { replicaReads } from "../middleware/readConsistency.js";
+import { getProofOfReserve } from "../controllers/financial.controller.js";
 import { fplDataFreshness } from "../middleware/fplDataFreshness.js";
 
 /**
@@ -37,6 +38,8 @@ apiV1Router.use("/admin/sync", fplDataFreshness, syncRoutes);
 apiV1Router.use("/admin", adminRoutes);
 apiV1Router.use("/sep8", sep8Routes);
 apiV1Router.use("/financial", financialRoutes);
+// Public: latest proof-of-reserve roots and totals (no participant data)
+apiV1Router.get("/proof-of-reserve", getProofOfReserve);
 apiV1Router.use("/webhooks", webhookRoutes);
 
 // Read-heavy public data: GET requests may be served by the nearest read replica.
